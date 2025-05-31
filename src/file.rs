@@ -1,4 +1,9 @@
-use binrw::binrw;
+use std::io::Cursor;
+
+use binrw::{BinRead, binrw};
+use bytes::Buf;
+
+use crate::error::RZError;
 
 const RESOURCE_ENCRYPTION_KEY: [u8; 256] = [
     0x77, 0xe8, 0x5e, 0xec, 0xb7, 0x4e, 0xc1, 0x87, 0x4f, 0xe6, 0xf5, 0x3c, 0x1f, 0xb3, 0x15, 0x43,
@@ -19,6 +24,8 @@ const RESOURCE_ENCRYPTION_KEY: [u8; 256] = [
     0x0c, 0x8a, 0xb4, 0x66, 0x60, 0xe1, 0xff, 0x2e, 0xc8, 0x00, 0x43, 0xa9, 0x67, 0x37, 0xdb, 0x9c,
 ];
 
+const ENCRYPTED_EXTENSIONS: [&str; 6] = ["dds", "cob", "naf", "nx3", "nfm", "tga"];
+
 #[binrw]
 #[brw(little)]
 #[derive(Default, Debug)]
@@ -35,17 +42,48 @@ pub struct IndexFile {
     pub size: u32,
 }
 
+/// ## is_encrypted
+/// Check if a filename ends with an extension which is encrypted by default.
+///
+/// Alternatively, pass extensions yourself. If you want to use the default ones, pass `None`
+pub fn is_encrypted(file_name: &str, extensions: Option<&[&str]>) -> bool {
+    let ext_to_test = extensions.unwrap_or(&ENCRYPTED_EXTENSIONS);
+    ext_to_test.iter().any(|ext| file_name.ends_with(ext))
+}
+
 /// ## cipher
-/// ### Decrypt data.000
+/// ### Decrypt client data
 /// Pass a buffer as reference to decrypt the file.
 /// If you have a custom resource encoding key, you can pass it as well - if not, pass `None`
-fn cipher(buffer: &mut [u8], resource_encode_key: Option<&[u8; 256]>) {
+pub fn cipher(buffer: &mut [u8], resource_encode_key: Option<&[u8; 256]>) {
     let mut index = 0u8;
     let key = resource_encode_key.unwrap_or(&RESOURCE_ENCRYPTION_KEY);
     for n in buffer.iter_mut() {
         *n ^= *key.get(index as usize).unwrap();
         index = index.wrapping_add(1);
     }
+}
+
+/// ## parse_index
+/// ### Reads a buffer of the content of data.000
+/// If you have a custom resource encoding key, you can pass it as well - if not, pass `None`
+/// Result is a vector containing all data as struct
+pub fn parse_index(
+    mut buffer: Vec<u8>,
+    resource_encode_key: Option<&[u8; 256]>,
+) -> Result<Vec<IndexFile>, RZError> {
+    if buffer.is_empty() {
+        return Err(RZError::InvalidLength);
+    }
+
+    cipher(&mut buffer, resource_encode_key);
+    let mut reader = Cursor::new(buffer);
+    let mut result: Vec<IndexFile> = Vec::new();
+    while reader.has_remaining() {
+        let data = IndexFile::read(&mut reader).map_err(|_| RZError::Unknown)?;
+        result.push(data);
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -58,5 +96,17 @@ mod tests {
         assert_ne!(buffer, [0, 0, 0, 0]);
         cipher(&mut buffer, None);
         assert_eq!(buffer, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_file() {
+        let mut buffer: [u8; 12] = [3, 97, 98, 99, 5, 0, 0, 0, 6, 0, 0, 0];
+        cipher(&mut buffer, None);
+        let vec_result = parse_index(buffer.to_vec(), None).unwrap();
+        assert_eq!(vec_result.len(), 1);
+        assert_eq!(vec_result[0].hash, [97, 98, 99]);
+        assert_eq!(vec_result[0].str_len, 3);
+        assert_eq!(vec_result[0].offset, 5);
+        assert_eq!(vec_result[0].size, 6);
     }
 }
