@@ -1,8 +1,3 @@
-use std::io::Cursor;
-
-use binrw::{BinRead, binrw};
-use bytes::Buf;
-
 use crate::error::RZError;
 
 const RESOURCE_ENCRYPTION_KEY: [u8; 256] = [
@@ -26,14 +21,11 @@ const RESOURCE_ENCRYPTION_KEY: [u8; 256] = [
 
 const ENCRYPTED_EXTENSIONS: [&str; 6] = ["dds", "cob", "naf", "nx3", "nfm", "tga"];
 
-#[binrw]
-#[brw(little)]
 #[derive(Default, Debug)]
 /// Structure of the data.000 file
 pub struct IndexFile {
     /// len of the following hash
     pub str_len: u8,
-    #[br(count = str_len)]
     /// hash filename (contains file_no: data.00x)
     pub hash: Vec<u8>,
     /// offset in file data.00x
@@ -69,20 +61,42 @@ pub fn cipher(buffer: &mut [u8], resource_encode_key: Option<&[u8; 256]>) {
 /// If you have a custom resource encoding key, you can pass it as well - if not, pass `None`
 /// Result is a vector containing all data as struct
 pub fn parse_index(
-    mut buffer: Vec<u8>,
+    buffer: &mut [u8],
     resource_encode_key: Option<&[u8; 256]>,
 ) -> Result<Vec<IndexFile>, RZError> {
     if buffer.is_empty() {
         return Err(RZError::InvalidLength);
     }
 
-    cipher(&mut buffer, resource_encode_key);
-    let mut reader = Cursor::new(buffer);
+    cipher(buffer, resource_encode_key);
     let mut result: Vec<IndexFile> = Vec::new();
-    while reader.has_remaining() {
-        let data = IndexFile::read(&mut reader).map_err(|_| RZError::Unknown)?;
-        result.push(data);
+
+    let mut curr_pos = 0usize;
+    while curr_pos < buffer.len() {
+        let hash_len = buffer.get(curr_pos).unwrap();
+        let full_block_size = *hash_len as usize + 9usize;
+        if (curr_pos + full_block_size) > buffer.len() {
+            return Err(RZError::Unknown);
+        }
+
+        let index_file = IndexFile {
+            str_len: *hash_len,
+            hash: buffer[(curr_pos + 1)..(curr_pos + *hash_len as usize + 1)].into(),
+            offset: u32::from_le_bytes(
+                buffer[(curr_pos + *hash_len as usize + 1)..(curr_pos + *hash_len as usize + 5)]
+                    .try_into()
+                    .unwrap(),
+            ),
+            size: u32::from_le_bytes(
+                buffer[(curr_pos + *hash_len as usize + 5)..(curr_pos + *hash_len as usize + 9)]
+                    .try_into()
+                    .unwrap(),
+            ),
+        };
+        curr_pos += full_block_size;
+        result.push(index_file);
     }
+
     Ok(result)
 }
 
@@ -100,13 +114,23 @@ mod tests {
 
     #[test]
     fn test_file() {
-        let mut buffer: [u8; 12] = [3, 97, 98, 99, 5, 0, 0, 0, 6, 0, 0, 0];
+        let mut buffer: [u8; 25] = [
+            3, 97, 98, 99, 5, 0, 0, 0, 6, 0, 0, 0, 4, 97, 98, 99, 100, 7, 0, 0, 0, 8, 0, 0, 0,
+        ];
         cipher(&mut buffer, None);
-        let vec_result = parse_index(buffer.to_vec(), None).unwrap();
-        assert_eq!(vec_result.len(), 1);
+        let vec_result = parse_index(&mut buffer, None).unwrap();
+        assert_eq!(vec_result.len(), 2);
         assert_eq!(vec_result[0].hash, [97, 98, 99]);
         assert_eq!(vec_result[0].str_len, 3);
         assert_eq!(vec_result[0].offset, 5);
         assert_eq!(vec_result[0].size, 6);
+        assert_eq!(vec_result[1].hash, [97, 98, 99, 100]);
+        assert_eq!(vec_result[1].str_len, 4);
+        assert_eq!(vec_result[1].offset, 7);
+        assert_eq!(vec_result[1].size, 8);
+
+        let mut buffer: [u8; 0] = [];
+        let result = parse_index(&mut buffer, None).unwrap_err();
+        assert_eq!(result, RZError::InvalidLength);
     }
 }

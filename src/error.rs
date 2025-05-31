@@ -1,15 +1,22 @@
-use thiserror::Error;
+use std::fmt::Display;
 
-#[derive(Error, Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RZError {
-    #[error("No hash has been provided")]
     NoHashProvided,
-    #[error("Invalid depth")]
     InvalidDepth,
-    #[error("Invalid character")]
     InvalidCharacter,
-    #[error("Invalid length")]
     InvalidLength,
-    #[error("unknown data store error")]
     Unknown,
+}
+
+impl Display for RZError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Self::InvalidCharacter => write!(f, "Invalid character!"),
+            Self::InvalidDepth => write!(f, "Invalid depth!"),
+            Self::InvalidLength => write!(f, "Invalid length!"),
+            Self::NoHashProvided => write!(f, "No hash has been provided!"),
+            Self::Unknown => write!(f, "Unknown error occured!"),
+        }
+    }
 }
