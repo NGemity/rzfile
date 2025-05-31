@@ -74,7 +74,7 @@ fn get_parity_char(name: &[u8]) -> u8 {
 
 /// ## swaps two characters in the provided string..
 /// should only be used in association with the encryption/decryption functions.
-/// Will error if less than 2 bytes at least.
+/// Will panic if less than 2 bytes.
 fn reverse_string(s: &mut [u8]) {
     let len = s.len();
     s.swap(0, (len as f32 * 0.66) as usize);
@@ -109,7 +109,7 @@ pub fn encode_file_name(
         let mut compute_var = *c;
         compute_var = get_char(compute_var, depth, actual_enc)?;
         depth = depth
-            .wrapping_add(17 * *c as i32)
+            .wrapping_add((*c as i32).wrapping_mul(17))
             .wrapping_rem(32)
             .wrapping_add(1);
 
@@ -168,8 +168,8 @@ pub fn decode_file_name(
         *c = get_char(*c, depth, actual_dec)?;
         depth = depth
             .wrapping_add((*c as i32).wrapping_mul(17))
-            .wrapping_add(1)
-            .wrapping_rem(32);
+            .wrapping_rem(32)
+            .wrapping_add(1);
         if depth == 0 {
             depth = 32;
         }
