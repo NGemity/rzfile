@@ -25,12 +25,12 @@ const DEC_TABLE: [u8; 128] = [
 const REF_TABLE: &[u8] =
     b"^&T_Nsd{xo5v`rOYV+,iIU#kCJq8$'~L0P]FeBn-Au(pXHZhwDy2}agWG7K=bQ;SRt)46l@jE%9!c1[3fmMz";
 
-/// ## Returns a character for encrypting.
+/// ## Returns a character for encrypting or decrypting, depending on passed table
 ///
 /// May error in the following cases:
 /// - `depth` is <= 0
 /// - `c` is 0
-fn get_enc_char(mut c: u8, depth: i32) -> Result<u8, RZError> {
+fn get_char(mut c: u8, depth: i32, table: &[u8; 128]) -> Result<u8, RZError> {
     if depth <= 0 {
         return Err(RZError::InvalidDepth);
     }
@@ -39,26 +39,7 @@ fn get_enc_char(mut c: u8, depth: i32) -> Result<u8, RZError> {
     }
 
     for _ in 0..depth {
-        c = ENC_TABLE[c as usize];
-    }
-    Ok(c)
-}
-
-/// ## Returns a character for decrypting.
-///
-/// May error in the following cases:
-/// - `depth` is <= 0
-/// - `c` is 0
-fn get_dec_char(mut c: u8, depth: i32) -> Result<u8, RZError> {
-    if depth <= 0 {
-        return Err(RZError::InvalidDepth);
-    }
-    if c == 0 {
-        return Err(RZError::InvalidCharacter);
-    }
-
-    for _ in 0..depth {
-        c = DEC_TABLE[c as usize];
+        c = table[c as usize];
     }
     Ok(c)
 }
@@ -105,7 +86,11 @@ fn reverse_string(s: &mut [u8]) {
 /// May error in the following cases:
 /// - length of `name` is <= 3 characters
 /// - `name` is empty
-pub fn encode_file_name(name: &str) -> Result<String, RZError> {
+pub fn encode_file_name(
+    name: &str,
+    cust_ref: Option<&[u8]>,
+    cust_enc: Option<&[u8; 128]>,
+) -> Result<String, RZError> {
     if name.is_empty() {
         return Err(RZError::NoHashProvided);
     }
@@ -113,13 +98,16 @@ pub fn encode_file_name(name: &str) -> Result<String, RZError> {
         return Err(RZError::InvalidLength);
     }
 
+    let actual_ref = cust_ref.unwrap_or(REF_TABLE);
+    let actual_enc = cust_enc.unwrap_or(&ENC_TABLE);
+
     let mut hash: Vec<u8> = name.to_lowercase().into_bytes();
     let mut depth = get_start_depth(&hash);
     let start_depth = depth;
 
     for c in hash.iter_mut() {
         let mut compute_var = *c;
-        compute_var = get_enc_char(compute_var, depth)?;
+        compute_var = get_char(compute_var, depth, actual_enc)?;
         depth = depth
             .wrapping_add(17 * *c as i32)
             .wrapping_rem(32)
@@ -133,7 +121,7 @@ pub fn encode_file_name(name: &str) -> Result<String, RZError> {
     let mut result = Vec::new();
     result.push(get_parity_char(&hash));
     result.extend_from_slice(&hash);
-    result.push(REF_TABLE[start_depth as usize]);
+    result.push(actual_ref[start_depth as usize]);
 
     Ok(String::from_utf8(result).unwrap())
 }
@@ -145,7 +133,11 @@ pub fn encode_file_name(name: &str) -> Result<String, RZError> {
 /// - `name` is empty
 /// - `depth` based on the REF_TABLE returns 0 (invalid state)
 ///
-pub fn decode_file_name(name: &str) -> Result<String, RZError> {
+pub fn decode_file_name(
+    name: &str,
+    cust_ref: Option<&[u8]>,
+    cust_dec: Option<&[u8; 128]>,
+) -> Result<String, RZError> {
     if name.is_empty() {
         return Err(RZError::NoHashProvided);
     }
@@ -154,9 +146,12 @@ pub fn decode_file_name(name: &str) -> Result<String, RZError> {
         return Err(RZError::InvalidLength);
     }
 
+    let actual_ref = cust_ref.unwrap_or(REF_TABLE);
+    let actual_dec = cust_dec.unwrap_or(&DEC_TABLE);
+
     let bytes = name.as_bytes();
     let mut depth = 0;
-    for (i, &c) in REF_TABLE.iter().enumerate() {
+    for (i, &c) in actual_ref.iter().enumerate() {
         if c == bytes[bytes.len() - 1] {
             depth = i as i32;
             break;
@@ -170,7 +165,7 @@ pub fn decode_file_name(name: &str) -> Result<String, RZError> {
     reverse_string(&mut str_string);
 
     for c in str_string.iter_mut() {
-        *c = get_dec_char(*c, depth)?;
+        *c = get_char(*c, depth, actual_dec)?;
         depth = depth
             .wrapping_add((*c as i32).wrapping_mul(17))
             .wrapping_add(1)
@@ -263,7 +258,7 @@ mod tests {
     fn test_encode_filename() {
         let tests = get_vec();
         for test in tests {
-            let file = decode_file_name(&test.file_name);
+            let file = decode_file_name(&test.file_name, None, None);
             if test.fail {
                 assert!(file.is_err());
             } else {
@@ -276,7 +271,7 @@ mod tests {
     fn test_decode_filename() {
         let tests = get_vec();
         for test in tests {
-            let file = encode_file_name(&test.real_name);
+            let file = encode_file_name(&test.real_name, None, None);
             if test.fail {
                 assert!(file.is_err());
             } else {
