@@ -84,6 +84,22 @@ fn reverse_string(s: &mut [u8]) {
     s.swap(1, (len as f32 * 0.33) as usize);
 }
 
+/// ## checks for encoded file name
+fn is_encoded_name(file_name: &str) -> bool {
+    if file_name.len() < 4 || file_name.ends_with(".ogg") {
+        return false;
+    }
+
+    let str_as_bytes = file_name.as_bytes();
+
+    let mut middle = str_as_bytes[1..file_name.len() - 1].to_vec();
+
+    reverse_string(&mut middle);
+
+    let expected_first = get_parity_char(&middle);
+    str_as_bytes[0] == expected_first
+}
+
 /// ## Returns an encoded filename.
 ///
 /// May error in the following cases:
@@ -140,6 +156,7 @@ pub fn decode_file_name(
     name: &str,
     cust_ref: Option<&[u8]>,
     cust_dec: Option<&[u8; 128]>,
+    check_encoded: bool,
 ) -> Result<String, RZError> {
     if name.is_empty() {
         return Err(RZError::NoHashProvided);
@@ -147,6 +164,10 @@ pub fn decode_file_name(
 
     if name.len() <= 3 {
         return Err(RZError::InvalidLength);
+    }
+
+    if check_encoded && !is_encoded_name(name) {
+        return Ok(name.to_owned());
     }
 
     let actual_ref = cust_ref.unwrap_or(REF_TABLE);
@@ -258,10 +279,10 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_filename() {
+    fn test_decode_filename() {
         let tests = get_vec();
         for test in tests {
-            let file = decode_file_name(&test.file_name, None, None);
+            let file = decode_file_name(&test.file_name, None, None, false);
             if test.fail {
                 assert!(file.is_err());
             } else {
@@ -271,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_filename() {
+    fn test_encode_filename() {
         let tests = get_vec();
         for test in tests {
             let file = encode_file_name(&test.real_name, None, None);
