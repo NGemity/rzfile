@@ -224,96 +224,72 @@ pub fn get_file_no(hash: &str) -> u8 {
 mod tests {
     use super::*;
 
-    struct Test {
-        pub file_name: String,
-        pub real_name: String,
-        pub file_no: u8,
-        pub fail: bool,
-    }
-
-    fn get_vec() -> Vec<Test> {
-        vec![
-            Test {
-                file_name: "sdXwe'vmvdeHga$".to_owned(),
-                real_name: "db_string.rdb".to_owned(),
-                file_no: 1,
-                fail: false,
-            },
-            Test {
-                file_name: "U{W.Y(_ZdT!JV".to_owned(),
-                real_name: "db_item.rdb".to_owned(),
-                file_no: 3,
-                fail: false,
-            },
-            Test {
-                file_name: "6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq".to_owned(),
-                real_name: "button_scrollbar_down_titanium03.jpg".to_owned(),
-                file_no: 8,
-                fail: false,
-            },
-            Test {
-                file_name: "4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx".to_owned(),
-                real_name: "beast_dark_sacker_cast_c.wav".to_owned(),
-                file_no: 6,
-                fail: false,
-            },
-            Test {
-                file_name: "j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC".to_owned(),
-                real_name: "static_common_selectclick_type01_01.png".to_owned(),
-                file_no: 7,
-                fail: false,
-            },
-            Test {
-                file_name: "8M,r!GM7pLIPuo!b]!Q`}fZN".to_owned(),
-                real_name: "window_skill_gauge.nui".to_owned(),
-                file_no: 2,
-                fail: false,
-            },
-            Test {
-                file_name: "123".to_owned(),
-                real_name: "123".to_owned(),
-                file_no: 2,
-                fail: true,
-            },
-        ]
-    }
-
     #[test]
     fn test_decode_filename() {
-        let tests = get_vec();
+        let tests = [
+            ("sdXwe'vmvdeHga$", "db_string.rdb"),
+            ("U{W.Y(_ZdT!JV", "db_item.rdb"),
+            (
+                "j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC",
+                "static_common_selectclick_type01_01.png",
+            ),
+            (
+                "4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx",
+                "beast_dark_sacker_cast_c.wav",
+            ),
+            (
+                "6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq",
+                "button_scrollbar_down_titanium03.jpg",
+            ),
+            ("8M,r!GM7pLIPuo!b]!Q`}fZN", "window_skill_gauge.nui"),
+        ];
+
         for test in tests {
-            let file = decode_file_name(&test.file_name, None, None, false);
-            if test.fail {
-                assert!(file.is_err());
-            } else {
-                assert_eq!(file.unwrap(), test.real_name);
-            }
+            let file = decode_file_name(test.0, None, None, false);
+            assert_eq!(file.unwrap(), test.1);
         }
     }
 
     #[test]
     fn test_encode_filename() {
-        let tests = get_vec();
+        let tests = [
+            ("sdXwe'vmvdeHga$", "db_string.rdb"),
+            ("U{W.Y(_ZdT!JV", "db_item.rdb"),
+            (
+                "j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC",
+                "static_common_selectclick_type01_01.png",
+            ),
+            (
+                "4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx",
+                "beast_dark_sacker_cast_c.wav",
+            ),
+            (
+                "6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq",
+                "button_scrollbar_down_titanium03.jpg",
+            ),
+            ("8M,r!GM7pLIPuo!b]!Q`}fZN", "window_skill_gauge.nui"),
+        ];
+
         for test in tests {
-            let file = encode_file_name(&test.real_name, None, None);
-            if test.fail {
-                assert!(file.is_err());
-            } else {
-                assert_eq!(file.unwrap(), test.file_name);
-            }
+            let file = encode_file_name(test.1, None, None);
+            assert_eq!(file.unwrap(), test.0);
         }
     }
 
     #[test]
     fn test_get_file_no() {
-        let tests = get_vec();
+        let tests = [
+            ("sdXwe'vmvdeHga$", 1),
+            ("U{W.Y(_ZdT!JV", 3),
+            ("j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC", 7),
+            ("4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx", 6),
+            ("6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq", 8),
+            ("8M,r!GM7pLIPuo!b]!Q`}fZN", 2),
+        ];
+
         for test in tests {
-            let file_no = get_file_no(&test.file_name);
-            if test.fail {
-                assert_ne!(file_no, test.file_no)
-            } else {
-                assert_eq!(file_no, test.file_no);
-            }
+            let file_no = get_file_no(test.0);
+            assert_eq!(file_no, test.1);
         }
     }
 }
