@@ -38,8 +38,8 @@ pub struct IndexFile {
 /// Check if a filename ends with an extension which is encrypted by default.
 ///
 /// Alternatively, pass extensions yourself. If you want to use the default ones, pass `None`
-pub fn is_encrypted(file_name: &str, extensions: Option<&[&str]>) -> bool {
-    let ext_to_test = extensions.unwrap_or(&ENCRYPTED_EXTENSIONS);
+pub fn is_encrypted(file_name: &str, extensions: Option<Vec<String>>) -> bool {
+    let ext_to_test = extensions.unwrap_or(ENCRYPTED_EXTENSIONS.iter().map(|s| s.to_string()).collect());
     ext_to_test.iter().any(|ext| file_name.ends_with(ext))
 }
 
@@ -47,7 +47,7 @@ pub fn is_encrypted(file_name: &str, extensions: Option<&[&str]>) -> bool {
 /// ### Decrypt client data
 /// Pass a buffer as reference to decrypt the file.
 /// If you have a custom resource encoding key, you can pass it as well - if not, pass `None`
-pub fn cipher(buffer: &mut [u8], resource_encode_key: Option<&[u8; 256]>) {
+pub fn cipher(buffer: &mut [u8], resource_encode_key: Option<&[u8]>) {
     let mut index = 0u8;
     let key = resource_encode_key.unwrap_or(&RESOURCE_ENCRYPTION_KEY);
     for n in buffer.iter_mut() {
@@ -62,7 +62,7 @@ pub fn cipher(buffer: &mut [u8], resource_encode_key: Option<&[u8; 256]>) {
 /// Result is a vector containing all data as struct
 pub fn parse_index(
     buffer: &mut [u8],
-    resource_encode_key: Option<&[u8; 256]>,
+    resource_encode_key: Option<&[u8]>,
 ) -> Result<Vec<IndexFile>, RZError> {
     if buffer.is_empty() {
         return Err(RZError::InvalidLength);
