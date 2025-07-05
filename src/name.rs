@@ -33,7 +33,7 @@ const REF_TABLE: &[u8] =
 /// May error in the following cases:
 /// - `depth` is <= 0
 /// - `c` is 0
-fn get_char(mut c: u8, depth: i32, table: &[u8; 128]) -> Result<u8, RZError> {
+fn get_char(mut c: u8, depth: i32, table: &[u8]) -> Result<u8, RZError> {
     if depth <= 0 {
         return Err(RZError::InvalidDepth);
     }
@@ -42,6 +42,7 @@ fn get_char(mut c: u8, depth: i32, table: &[u8; 128]) -> Result<u8, RZError> {
     }
 
     for _ in 0..depth {
+        
         c = table[c as usize];
     }
     Ok(c)
@@ -108,7 +109,7 @@ fn is_encoded_name(file_name: &str) -> bool {
 pub fn encode_file_name(
     name: &str,
     cust_ref: Option<&[u8]>,
-    cust_enc: Option<&[u8; 128]>,
+    cust_enc: Option<&[u8]>,
 ) -> Result<String, RZError> {
     if name.is_empty() {
         return Err(RZError::NoHashProvided);
@@ -155,7 +156,7 @@ pub fn encode_file_name(
 pub fn decode_file_name(
     name: &str,
     cust_ref: Option<&[u8]>,
-    cust_dec: Option<&[u8; 128]>,
+    cust_dec: Option<&[u8]>,
     check_encoded: bool,
 ) -> Result<String, RZError> {
     if name.is_empty() {
