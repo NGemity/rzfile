@@ -20,3 +20,5 @@ impl Display for RZError {
         }
     }
 }
+
+impl std::error::Error for RZError {}
