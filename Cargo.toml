@@ -2,6 +2,12 @@
 name = "rzfile"
 version = "0.1.0"
 edition = "2024"
+authors = ["Marcel Exner <mexby@ngemity.dev>"]
+description = "Library to handle RZ game data parsing and name decoding"
+repository = "https://github.com/NGemity/rzfile"
+license = "MIT"
+readme = "README.md"
+documentation = "https://docs.rs/rzfile"
 
 [dependencies]
 thiserror = "2.0.12"

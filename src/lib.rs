@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 //! # rzfile
-//! A library for handling client files used by the RZEmulator project.
+//! A library for handling client files used by the RZEmulator project by NGemity.
 //!
 //! This crate provides tools to parse, decrypt and interpret game resource files
 //! such as `data.000` and associated hashed archives.
