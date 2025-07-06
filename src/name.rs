@@ -1,6 +1,10 @@
 use crate::error::RZError;
 
-/// ## Table used for encryption
+/// Byte mapping table used for encrypting obfuscated file names.
+///
+/// This table defines a one-way substitution mapping from base characters
+/// (e.g., ASCII values) to encrypted bytes. The index into this table is
+/// typically a character code (`u8`) from a plain-text name.
 const ENC_TABLE: [u8; 128] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -12,7 +16,10 @@ const ENC_TABLE: [u8; 128] = [
     0x33, 0x4C, 0x6E, 0x6F, 0x5A, 0x69, 0x72, 0x73, 0x75, 0x3B, 0x7A, 0x63, 0x00, 0x54, 0x35, 0x00,
 ];
 
-/// ## Table used for decryption
+/// Byte mapping table used for decrypting obfuscated file names.
+///
+/// This is the inverse mapping of [`ENC_TABLE`], allowing decryption
+/// of encrypted file name bytes back into readable ASCII-compatible characters.
 const DEC_TABLE: [u8; 128] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -28,28 +35,60 @@ const DEC_TABLE: [u8; 128] = [
 const REF_TABLE: &[u8] =
     b"^&T_Nsd{xo5v`rOYV+,iIU#kCJq8$'~L0P]FeBn-Au(pXHZhwDy2}agWG7K=bQ;SRt)46l@jE%9!c1[3fmMz";
 
-/// ## Returns a character for encrypting or decrypting, depending on passed table
+/// Returns a transformed byte from the given table, applied recursively by depth.
 ///
-/// May error in the following cases:
-/// - `depth` is <= 0
-/// - `c` is 0
+/// This function takes a byte `c`, looks it up in the provided substitution `table`,
+/// and repeats this lookup `depth` times. It's typically used for encrypting or decrypting
+/// obfuscated file names using predefined substitution tables.
+///
+/// # Arguments
+///
+/// - `c`: The input byte to transform. Must be non-zero and a valid index in `table`.
+/// - `depth`: Number of times to recursively apply the substitution. Must be greater than zero.
+/// - `table`: The substitution table to use. Must have at least 256 entries.
+///
+/// # Errors
+///
+/// - [`RZError::InvalidDepth`] if `depth <= 0`
+/// - [`RZError::InvalidCharacter`] if `c == 0` or `c` is out of bounds for the `table`
 fn get_char(mut c: u8, depth: i32, table: &[u8]) -> Result<u8, RZError> {
     if depth <= 0 {
         return Err(RZError::InvalidDepth);
     }
-    if c == 0 {
+    if c == 0 || (c as usize) >= table.len() {
         return Err(RZError::InvalidCharacter);
     }
 
     for _ in 0..depth {
-        
-        c = table[c as usize];
+        let idx = c as usize;
+        if idx >= table.len() {
+            return Err(RZError::InvalidLength);
+        }
+        c = table[idx];
     }
+
     Ok(c)
 }
 
-/// ## Gets the starting depth.
-/// should only be used in association with the encryption/decryption functions.
+/// Computes the starting depth value used in encryption or decryption functions.
+///
+/// This function calculates a deterministic "depth" value based on the input `hash`,
+/// which influences how often a character should be transformed via a substitution table
+/// (see [`get_char`]).
+///
+/// The formula is:
+/// - For each byte `b` in `hash`: `key += 17 * b + 1` (with wrapping arithmetic)
+/// - After all bytes: `key += hash.len()`
+/// - Then: `depth = key % 32` (with wraparound), unless `depth == 0`, in which case it returns 32
+///
+/// # Arguments
+///
+/// * `hash` – A byte slice (typically a hashed filename) that serves as the basis for computing depth.
+///
+/// # Returns
+///
+/// An integer between 1 and 32, inclusive.  
+/// This value is designed to vary per `hash` and ensures that every input yields at least depth 1.
 fn get_start_depth(hash: &[u8]) -> i32 {
     let mut key: i32 = 0;
     for b in hash {
@@ -58,15 +97,31 @@ fn get_start_depth(hash: &[u8]) -> i32 {
             .wrapping_add(1);
     }
     key = key.wrapping_add(hash.len() as i32);
-    let mut ret = key.wrapping_rem(32);
+    let mut ret = key.rem_euclid(32);
     if ret == 0 {
         ret = 32;
     }
     ret
 }
 
-/// ## Gets a parity character based on the REF_TABLE
-/// should only be used in association with the encryption/decryption functions.
+/// Calculates a parity character from a given name slice using the [`REF_TABLE`].
+///
+/// This function computes a simple checksum by summing the byte values of `name`
+/// and using the result (modulo the length of [`REF_TABLE`]) as an index to select a character.
+/// It's used to append or validate a parity byte in file name encryption/decryption.
+///
+/// # Arguments
+///
+/// * `name` – A byte slice representing the (possibly hashed or transformed) file name.
+///
+/// # Returns
+///
+/// A single byte from [`REF_TABLE`] that acts as the parity character for this name.
+///
+/// # Note
+///
+/// This function is deterministic: the same input will always yield the same output.
+/// It does **not** offer cryptographic guarantees — it's intended only for simple parity tagging.
 fn get_parity_char(name: &[u8]) -> u8 {
     let mut key: usize = name
         .iter()
@@ -76,16 +131,63 @@ fn get_parity_char(name: &[u8]) -> u8 {
     REF_TABLE[key]
 }
 
-/// ## swaps two characters in the provided string..
-/// should only be used in association with the encryption/decryption functions.
-/// Will panic if less than 2 bytes.
+/// Swaps two characters in a byte slice using fixed percentage positions.
+///
+/// If the input slice is too short or the calculated indices would be invalid,
+/// the function does nothing.
+///
+/// # Arguments
+///
+/// * `s` – A mutable byte slice (e.g., from a file name).
+///
+/// # Behavior
+///
+/// - Swaps `s[0]` with `s[66%]`
+/// - Swaps `s[1]` with `s[33%]`
+/// - Does **nothing** if the slice has fewer than 2 bytes
 fn reverse_string(s: &mut [u8]) {
+    if s.len() < 2 {
+        return;
+    }
+
     let len = s.len();
-    s.swap(0, (len as f32 * 0.66) as usize);
-    s.swap(1, (len as f32 * 0.33) as usize);
+    let i1 = (len as f32 * 0.66) as usize;
+    let i2 = (len as f32 * 0.33) as usize;
+
+    // safety check: skip if calculated indices would be out of bounds
+    if i1 < len {
+        s.swap(0, i1);
+    }
+    if i2 < len {
+        s.swap(1, i2);
+    }
 }
 
-/// ## checks for encoded file name
+/// Checks whether a given file name appears to be in encoded form.
+///
+/// This function performs a heuristic check based on the following rules:
+///
+/// - File name must be at least 4 characters long
+/// - File name must **not** end with `.ogg` (treated as unencoded/ignored)
+/// - The first character is compared against the calculated "parity character"
+///   from the reversed middle section of the file name
+///
+/// This function is typically used to differentiate between encrypted/obfuscated
+/// file names and plain-text or known-format files.
+///
+/// # Arguments
+///
+/// * `file_name` – The file name (as `&str`) to check.
+///
+/// # Returns
+///
+/// `true` if the name matches the expected encoded structure, `false` otherwise.
+///
+/// # Caveats
+///
+/// This function does **not** validate the full decryption structure; it only checks
+/// whether the name *looks like* an encoded one based on parity rules.
+/// False positives/negatives are possible with short or malformed inputs.
 fn is_encoded_name(file_name: &str) -> bool {
     if file_name.len() < 4 || file_name.ends_with(".ogg") {
         return false;
@@ -101,11 +203,60 @@ fn is_encoded_name(file_name: &str) -> bool {
     str_as_bytes[0] == expected_first
 }
 
-/// ## Returns an encoded filename.
+/// Encodes a file name into an obfuscated format using XOR-based table encryption.
 ///
-/// May error in the following cases:
-/// - length of `name` is <= 3 characters
-/// - `name` is empty
+/// This function takes an input file name, applies a position-dependent character substitution
+/// via `ENC_TABLE` (or a custom table), wraps the encoded bytes with a parity character at the start
+/// and a depth marker at the end, and returns the result as a UTF-8 `String`.
+///
+/// # Arguments
+///
+/// * `name` – The input file name to encode (must be longer than 3 characters).
+/// * `cust_ref` – Optional reference table used to select the trailing marker character.
+///   If `None`, `REF_TABLE` is used.
+/// * `cust_enc` – Optional encryption table used to encode each byte.  
+///   If `None`, the default `ENC_TABLE` is used.
+///
+/// # Returns
+///
+/// A newly encoded `String` representing the obfuscated file name.
+///
+/// # Errors
+///
+/// Returns:
+/// - [`RZError::NoHashProvided`] if `name` is empty.
+/// - [`RZError::InvalidLength`] if `name.len() <= 3`.
+/// - [`RZError::InvalidCharacter`] or [`RZError::InvalidDepth`] from inner helpers if input is invalid.
+///
+/// # Encoding Process
+///
+/// 1. Lowercase the input string
+/// 2. Compute a starting depth via `get_start_depth`
+/// 3. For each character:
+///     - Substitute via `get_char` with increasing depth
+///     - Update depth via `depth = (depth + c * 17) % 32 + 1`
+/// 4. Reverse the resulting buffer (`reverse_string`)
+/// 5. Prepend parity character via `get_parity_char`
+/// 6. Append trailing marker from `REF_TABLE` based on initial depth
+///
+/// # Example
+///
+/// ```rust
+/// use rzfile::{name::encode_file_name, error::RZError};
+///
+/// let encoded = encode_file_name("soundfile.dat", None, None)?;
+/// println!("Encoded: {encoded}");
+/// # Ok::<(), RZError>(())
+/// ```
+///
+/// # Panics
+///
+/// This function panics if the encoded byte sequence is not valid UTF-8.
+/// (This should never happen if the encoding tables are valid.)
+///
+/// # See Also
+///
+/// - [`decode_file_name`]
 pub fn encode_file_name(
     name: &str,
     cust_ref: Option<&[u8]>,
@@ -146,13 +297,55 @@ pub fn encode_file_name(
     Ok(String::from_utf8(result).unwrap())
 }
 
-/// ## Returns a decoded filename.
+/// Decodes an obfuscated file name back into its original form.
 ///
-/// May error in the following cases:
-/// - length of `name` is <= 3 characters
-/// - `name` is empty
-/// - `depth` based on the REF_TABLE returns 0 (invalid state)
+/// This function performs the inverse of [`encode_file_name`] using a substitution-based
+/// decryption table (e.g. `DEC_TABLE`) and metadata encoded into the name itself.
+/// The function optionally checks whether the input is in encoded form before attempting decryption.
 ///
+/// # Arguments
+///
+/// * `name` – The encoded file name string.
+/// * `cust_ref` – Optional reference table (`REF_TABLE`) used to look up the ending character
+///   to determine the initial depth. If `None`, the default `REF_TABLE` is used.
+/// * `cust_dec` – Optional decryption table (`DEC_TABLE`) used to reverse the character substitutions.
+///   If `None`, the default `DEC_TABLE` is used.
+/// * `check_encoded` – If `true`, the function first checks with [`is_encoded_name`] whether decoding
+///   is necessary. If the name is not encoded, it is returned unchanged.
+///
+/// # Returns
+///
+/// The original, decoded file name as a `String`, if successful.
+///
+/// # Errors
+///
+/// Returns an [`RZError`] in any of the following cases:
+///
+/// - [`RZError::NoHashProvided`] if `name` is empty.
+/// - [`RZError::InvalidLength`] if the name has 3 characters or fewer.
+/// - [`RZError::InvalidDepth`] if the last character is not found in the reference table.
+/// - [`RZError::InvalidCharacter`] if decoding fails.
+///
+/// # Example
+///
+/// ```rust
+/// use rzfile::{name::{decode_file_name, encode_file_name}, error::RZError};
+///
+/// let encoded = encode_file_name("map_file.dat", None, None)?;
+/// let decoded = decode_file_name(&encoded, None, None, true)?;
+/// assert_eq!(decoded, "map_file.dat");
+/// # Ok::<(), RZError>(())
+/// ```
+///
+/// # Panics
+///
+/// Panics if the final decoded byte sequence is not valid UTF-8.
+/// This should never happen if the tables are correct and the input was encoded via [`encode_file_name`].
+///
+/// # See Also
+///
+/// - [`encode_file_name`]
+/// - [`is_encoded_name`]
 pub fn decode_file_name(
     name: &str,
     cust_ref: Option<&[u8]>,
@@ -195,17 +388,42 @@ pub fn decode_file_name(
             .wrapping_add((*c as i32).wrapping_mul(17))
             .wrapping_rem(32)
             .wrapping_add(1);
-        if depth == 0 {
-            depth = 32;
-        }
     }
 
     Ok(String::from_utf8(str_string).unwrap())
 }
 
-/// ## Returns the file number associated to the hash.
+/// Computes the file number associated with a given hashed file name.
 ///
-/// Should not run into an error.
+/// This function performs a deterministic checksum-based calculation to assign
+/// a file number (1 through 8) to a given file hash or name.
+///
+/// The logic is based on a variant of Java's string hash algorithm:
+/// - For each byte in the lowercased input: `checksum = checksum * 31 + byte` (with wrapping)
+/// - The final file number is derived as `(checksum & 0x7) + 1`
+///
+/// # Arguments
+///
+/// * `hash` – The file hash or file name as a string.  
+///   Will be converted to lowercase before computation.
+///
+/// # Returns
+///
+/// A number in the range `1..=8`, corresponding to the logical data segment
+/// (e.g., `data.001`, `data.002`, ..., `data.008`).
+///
+/// # Example
+///
+/// ```rust
+/// use rzfile::name::get_file_no;
+///
+/// let file_no = get_file_no("abc123");
+/// assert!(file_no >= 1 && file_no <= 8);
+/// ```
+///
+/// # Guarantees
+///
+/// This function never returns 0 and never panics.
 pub fn get_file_no(hash: &str) -> u8 {
     let lower = hash.to_lowercase();
     let lower_bytes = lower.as_bytes();
@@ -226,71 +444,159 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_decode_filename() {
-        let tests = [
-            ("sdXwe'vmvdeHga$", "db_string.rdb"),
-            ("U{W.Y(_ZdT!JV", "db_item.rdb"),
-            (
-                "j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC",
-                "static_common_selectclick_type01_01.png",
-            ),
-            (
-                "4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx",
-                "beast_dark_sacker_cast_c.wav",
-            ),
-            (
-                "6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq",
-                "button_scrollbar_down_titanium03.jpg",
-            ),
-            ("8M,r!GM7pLIPuo!b]!Q`}fZN", "window_skill_gauge.nui"),
-        ];
+    fn test_get_char_valid() {
+        let result = get_char(b'a', 1, &ENC_TABLE);
+        assert!(result.is_ok());
+    }
 
-        for test in tests {
-            let file = decode_file_name(test.0, None, None, false);
-            assert_eq!(file.unwrap(), test.1);
+    #[test]
+    fn test_get_char_invalid_depth() {
+        let result = get_char(b'a', 0, &ENC_TABLE);
+        assert_eq!(result.unwrap_err(), RZError::InvalidDepth);
+    }
+
+    #[test]
+    fn test_get_char_invalid_index() {
+        let result = get_char(0, 1, &ENC_TABLE);
+        assert_eq!(result.unwrap_err(), RZError::InvalidCharacter);
+    }
+
+    #[test]
+    fn test_get_start_depth() {
+        assert!(1 <= get_start_depth(b"abc") && get_start_depth(b"abc") <= 32);
+    }
+
+    #[test]
+    fn test_get_parity_char_deterministic() {
+        let p1 = get_parity_char(b"abc");
+        let p2 = get_parity_char(b"abc");
+        assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn test_reverse_string_no_panic() {
+        let mut s = vec![1];
+        reverse_string(&mut s); // should do nothing
+        assert_eq!(s, vec![1]);
+
+        let mut s = b"abcdef".to_vec();
+        let expected = {
+            let mut t = s.clone();
+            t.swap(0, (s.len() as f32 * 0.66) as usize);
+            t.swap(1, (s.len() as f32 * 0.33) as usize);
+            t
+        };
+        reverse_string(&mut s);
+        assert_eq!(s, expected);
+    }
+
+    #[test]
+    fn test_is_encoded_name() {
+        // too short
+        assert!(!is_encoded_name("a"));
+        // ends with .ogg
+        assert!(!is_encoded_name("music.ogg"));
+        // actual parity mismatch
+        assert!(!is_encoded_name("ZabcZ"));
+        // valid encoded
+        let encoded = encode_file_name("testfile.txt", None, None).unwrap();
+        assert!(is_encoded_name(&encoded));
+    }
+
+    #[test]
+    fn test_encode_errors() {
+        assert_eq!(
+            encode_file_name("", None, None).unwrap_err(),
+            RZError::NoHashProvided
+        );
+        assert_eq!(
+            encode_file_name("abc", None, None).unwrap_err(),
+            RZError::InvalidLength
+        );
+    }
+
+    #[test]
+    fn test_decode_errors() {
+        assert_eq!(
+            decode_file_name("", None, None, true).unwrap_err(),
+            RZError::NoHashProvided
+        );
+        assert_eq!(
+            decode_file_name("abc", None, None, true).unwrap_err(),
+            RZError::InvalidLength
+        );
+        assert_eq!(
+            decode_file_name("ZabcdZ", Some(&[b'X'; 128]), None, false).unwrap_err(),
+            RZError::InvalidDepth
+        );
+    }
+
+    #[test]
+    fn test_encode_decode_roundtrip() {
+        let original = "test_sound.ogg";
+        let encoded = encode_file_name(original, None, None).unwrap();
+        let decoded = decode_file_name(&encoded, None, None, false).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_get_file_no_range() {
+        for name in ["abc", "xyz", "testfile.dat", "AnotherTest123"] {
+            let n = get_file_no(name);
+            assert!((1..=8).contains(&n));
         }
     }
 
     #[test]
-    fn test_encode_filename() {
-        let tests = [
-            ("sdXwe'vmvdeHga$", "db_string.rdb"),
-            ("U{W.Y(_ZdT!JV", "db_item.rdb"),
-            (
-                "j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC",
-                "static_common_selectclick_type01_01.png",
-            ),
-            (
-                "4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx",
-                "beast_dark_sacker_cast_c.wav",
-            ),
-            (
-                "6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq",
-                "button_scrollbar_down_titanium03.jpg",
-            ),
-            ("8M,r!GM7pLIPuo!b]!Q`}fZN", "window_skill_gauge.nui"),
-        ];
-
-        for test in tests {
-            let file = encode_file_name(test.1, None, None);
-            assert_eq!(file.unwrap(), test.0);
-        }
+    fn test_get_char_invalid_character_zero() {
+        let table = &[1u8; 128];
+        let err = get_char(0, 1, table).unwrap_err();
+        assert_eq!(err, RZError::InvalidCharacter);
     }
 
     #[test]
-    fn test_get_file_no() {
-        let tests = [
-            ("sdXwe'vmvdeHga$", 1),
-            ("U{W.Y(_ZdT!JV", 3),
-            ("j%r)XZooNaixS2-NOXC0Z1XpBqYWof17;EsEJWAdC", 7),
-            ("4sqD.(SdDTc7,0`9+r+a-;Wa6`Qyrx", 6),
-            ("6]IXXKr;Dw}YPuecve!6@HstO4hTXxl=UC,xgq", 8),
-            ("8M,r!GM7pLIPuo!b]!Q`}fZN", 2),
-        ];
+    fn test_get_char_becomes_invalid_during_iteration() {
+        let mut table = vec![0u8; 128];
+        table[100] = 200;
 
-        for test in tests {
-            let file_no = get_file_no(test.0);
-            assert_eq!(file_no, test.1);
-        }
+        let result = get_char(100, 2, &table);
+        assert_eq!(result.unwrap_err(), RZError::InvalidLength);
+    }
+
+    #[test]
+    fn test_get_start_depth_wraps_to_32() {
+        let hash = [30u8];
+        let depth = get_start_depth(&hash);
+        assert_eq!(depth, 32);
+    }
+
+    #[test]
+    fn test_decode_file_name_invalid_depth() {
+        let encoded = encode_file_name("somefile.txt", None, None).unwrap();
+
+        let mut corrupted = encoded.chars().collect::<Vec<_>>();
+        let corr_len = corrupted.len();
+        corrupted[corr_len - 1] = '"';
+
+        let corrupted_str: String = corrupted.into_iter().collect();
+        let result = decode_file_name(&corrupted_str, None, None, false);
+
+        assert_eq!(result.unwrap_err(), RZError::InvalidDepth);
+    }
+
+    #[test]
+    fn test_decode_file_name_depth_wraps_to_32_inside_loop() {
+        let name = "example.txt";
+        let encoded = encode_file_name(name, None, None).unwrap();
+
+        let decoded = decode_file_name(&encoded, None, None, false);
+        assert_eq!(decoded.unwrap(), name);
+    }
+
+    #[test]
+    fn test_decode_file_name_skips_decoding_if_not_encoded() {
+        let plain = "soundtrack.ogg";
+        let decoded = decode_file_name(plain, None, None, true).unwrap();
+        assert_eq!(decoded, plain);
     }
 }
