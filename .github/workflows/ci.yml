@@ -17,6 +17,14 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
 
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+            path: |
+                ~/.cargo/registry
+                ~/.cargo/git
+                key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Install tarpaulin
         run: cargo install cargo-tarpaulin
 
