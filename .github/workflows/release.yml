@@ -19,10 +19,10 @@ jobs:
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
-            path: |
-                ~/.cargo/registry
-                ~/.cargo/git
-                key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check build
         run: cargo build --release

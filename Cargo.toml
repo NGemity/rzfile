@@ -9,5 +9,9 @@ license = "MIT"
 readme = "README.md"
 documentation = "https://docs.rs/rzfile"
 
+[lib]
+name = "rzfile"
+path = "src/lib.rs"
+
 [dependencies]
 thiserror = "2.0.12"
